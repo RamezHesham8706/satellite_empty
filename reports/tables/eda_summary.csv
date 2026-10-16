@@ -1,0 +1,2 @@
+dataset_path,candidate_file_count,detected_class_count,extensions,sample_file,sample_shape_bands_height_width,sample_dtype,audit_files_attempted,audit_files_read_successfully,audit_read_errors,signature_errors
+C:\Users\HP\Downloads\satellite_empty\EuroSAT_MS\EuroSAT_MS,27000,10,.tif,C:\Users\HP\Downloads\satellite_empty\EuroSAT_MS\EuroSAT_MS\AnnualCrop\AnnualCrop_1.tif,"(13, 64, 64)",uint16,300,300,0,0
