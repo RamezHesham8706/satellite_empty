@@ -1,8 +1,38 @@
-numpy
-pandas
-matplotlib
-seaborn
-scikit-learn
-pillow
-torch
-torchvision
+
+1. Data Processing and Numerical Computation
+
+NumPy
+Pandas 
+CSV
+JSON 
+
+2. Data Visualization
+
+Matplotlib 
+Seaborn 
+
+3. Machine Learning and Evaluation
+
+Scikit-learn 
+
+4. Image Processing and Geospatial Data
+
+Pillow (PIL / pillow)
+Rasterio
+
+5. Deep Learning and Neural Networks
+
+PyTorch 
+PyTorch Neural Network 
+PyTorch Optimizers 
+Torchvision 
+6. Python Standard Library Modules
+
+ Pathlib 
+ Argparse 
+ Random 
+ Time 
+ Sys 
+ OS 
+ Collections
+

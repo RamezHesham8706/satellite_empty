@@ -1,0 +1,27 @@
+{
+  "model": "SmallCNN",
+  "dataset": "C:\\Users\\HP\\Downloads\\satellite_empty\\EuroSAT_MS\\EuroSAT_MS",
+  "num_channels": 13,
+  "num_classes": 10,
+  "classes": [
+    "AnnualCrop",
+    "Forest",
+    "HerbaceousVegetation",
+    "Highway",
+    "Industrial",
+    "Pasture",
+    "PermanentCrop",
+    "Residential",
+    "River",
+    "SeaLake"
+  ],
+  "best_epoch": 5,
+  "test_samples": 4050,
+  "test_loss": 0.18618599915210113,
+  "test_accuracy": 0.9385185185185185,
+  "test_accuracy_percent": 93.85185185185185,
+  "macro_precision": 0.9382026863375319,
+  "macro_recall": 0.9376888888888889,
+  "macro_f1": 0.9362352509655146,
+  "weighted_f1": 0.9387372839199112
+}
