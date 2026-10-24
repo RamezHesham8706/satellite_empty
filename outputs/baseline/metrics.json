@@ -1,0 +1,39 @@
+{
+  "model": "SmallCNN",
+  "dataset": "C:\\Users\\HP\\Downloads\\satellite_empty\\EuroSAT_MS\\EuroSAT_MS",
+  "num_channels": 13,
+  "num_classes": 10,
+  "classes": [
+    "AnnualCrop",
+    "Forest",
+    "HerbaceousVegetation",
+    "Highway",
+    "Industrial",
+    "Pasture",
+    "PermanentCrop",
+    "Residential",
+    "River",
+    "SeaLake"
+  ],
+  "seed": 42,
+  "device": "cpu",
+  "best_epoch": 5,
+  "best_validation_loss": 0.19677978565663468,
+  "best_validation_accuracy": 0.9365432098765432,
+  "test_loss": 0.18618599915210113,
+  "test_accuracy": 0.9385185185185185,
+  "epochs_completed": 10,
+  "training_seconds": 5248.98,
+  "hyperparameters": {
+    "batch_size": 32,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "patience": 5,
+    "min_delta": 0.0001
+  },
+  "artifacts": {
+    "checkpoint": "C:\\Users\\HP\\Downloads\\satellite_empty\\outputs\\baseline\\best_model.pth",
+    "classes": "C:\\Users\\HP\\Downloads\\satellite_empty\\outputs\\baseline\\classes.json",
+    "history": "C:\\Users\\HP\\Downloads\\satellite_empty\\outputs\\baseline\\metrics.csv"
+  }
+}

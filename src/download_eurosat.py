@@ -31,7 +31,7 @@ def download(kind: str, output_dir=None, url=None):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Download and extract the EuroSAT dataset.")
-    p.add_argument("--kind", choices=("rgb", "ms"), default="rgb", help="Dataset variant to download.")
+    p.add_argument("--kind", choices=("rgb", "ms"), default="ms", help="Dataset variant to download.")
     p.add_argument("--ms", action="store_true", help="Backward-compatible alias for --kind ms.")
     p.add_argument("--output_dir", type=Path, default=None, help="Directory to extract into. Defaults to data/raw/EuroSAT_RGB or EuroSAT_MS.")
     p.add_argument("--download_url", default=None, help="Optional override URL for the dataset archive.")
