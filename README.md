@@ -3,15 +3,15 @@
 Project 6 for the Digital Egypt Pioneers Initiative (DEPI), AI & Data Science
 Track, Round 2.
 
-This repository contains data exploration notebooks and starter utilities for
+This repository contains data exploration notebooks and utilities for
 land-cover classification with the EuroSAT dataset. It includes RGB and
-multispectral dataset download support, class-stratified PyTorch data loaders,
-and CNN/ResNet-18 model definitions.
+multispectral dataset download support, reproducible class-stratified PyTorch
+data loaders, and CNN/ResNet-18 model definitions with training and evaluation
+entry points.
 
-> **Project status:** The repository currently provides EuroSAT download,
-> exploration, and model-building components. The Sentinel-2 AOI definitions
-> are configuration only; automated Sentinel-2 scene search/download and a
-> complete model training/evaluation pipeline are not implemented here.
+> **Project status:** EuroSAT download, exploration, training, and evaluation
+> utilities are available. The Sentinel-2 AOI definitions are configuration
+> only; automated Sentinel-2 scene search/download is not implemented here.
 
 ## Contents
 
@@ -19,14 +19,14 @@ and CNN/ResNet-18 model definitions.
 | --- | --- |
 | `src/aoi_config.py` | Example Egypt areas of interest, Sentinel-2 band groups, land-cover labels, and scene-query preferences |
 | `src/download_eurosat.py` | Download and extract the EuroSAT RGB or multispectral archive |
-| `src/dataset.py` | ImageFolder-based train, validation, and test data loaders |
+| `src/dataset.py` | EuroSAT multispectral loader, reproducible train/validation/test splits |
 | `src/model.py` | `SmallCNN` and `resnet18` model builders |
 | `notebooks/initial_inspection.ipynb` | Initial dataset inspection notebook |
 | `notebooks/01_data_exploration_eurosat_ms.ipynb` | Multispectral exploration, spectral signatures, and optional NDVI analysis |
 | `notebooks/data_collection.ipynb` | Notebook for the EuroSAT download and project workflow |
 | `outputs/` | Example exported tables and charts from dataset exploration |
 | `reports/figures/` | Example report figures |
-| `tests/` | Focused tests for the downloader and model builder |
+| `tests/` | Focused tests for the dataset loader, downloader, and model builder |
 
 ## Requirements
 
@@ -99,24 +99,27 @@ The default archives are hosted on
 stores each ZIP beside its extraction directory. Downloaded data is not
 included in Git; the `.gitignore` excludes raw, interim, and processed data.
 
-### Expected image-folder layout
+### Expected multispectral dataset layout
 
-`src/dataset.py` uses `torchvision.datasets.ImageFolder`. It expects the
-directory passed as `data_dir` to contain one subdirectory per class, with
-images inside each class directory:
+`src/dataset.py` reads the 13-band GeoTIFFs using `rasterio` and NumPy image
+files directly. It accepts a dataset root or a containing directory and
+searches nested directories for the class folders:
 
 ```text
-data/raw/EuroSAT_RGB/
-  AnnualCrop/
-    image_1.jpg
-  Forest/
-    image_2.jpg
-  ...
+data/raw/EuroSAT_MS/
+  EuroSAT_MS/
+    AnnualCrop/
+      image_1.tif
+    Forest/
+      image_2.tif
+    ...
 ```
 
-Some archive versions may extract into an additional nested `EuroSAT_RGB/`
-directory. If that happens, pass the nested class-folder directory as
-`data_dir`.
+If the archive extracts with an extra nested directory, `resolve_data_dir()`
+finds the directory containing the class folders. The GeoTIFF band sequence is
+preserved as Sentinel-2 B01, B02, B03, B04, B05, B06, B07, B08, B8A, B09,
+B10, B11, and B12. Raw reflectance values are divided by 10000 when loaded
+into the dataset; values already in the 0–1 range are left unchanged.
 
 ## Explore the data
 
@@ -140,23 +143,25 @@ data supports that calculation.
 
 ## Python utilities
 
-Create train, validation, and test loaders from an ImageFolder-compatible
-dataset:
+Create train, validation, and test loaders from the multispectral dataset:
 
 ```python
 from src.dataset import get_loaders
 
 train_loader, val_loader, test_loader, class_names = get_loaders(
-    data_dir="data/raw/EuroSAT_RGB/EuroSAT_RGB",
+    data_dir="data/raw/EuroSAT_MS",
     batch_size=64,
     seed=42,
+    splits_path="data/processed/splits.csv",
 )
 ```
 
-The split is stratified by class (70% train, 15% validation, 15% test). Training
-images receive random flips and rotation; validation and test images use only
-tensor conversion and normalization. The loader returns the class names in
-ImageFolder order.
+The split is stratified by class (70% train, 15% validation, 15% test).
+`splits.csv` is created on the first run and reused on later runs, so evaluation
+uses the saved sample assignments instead of generating new splits. Paths in
+the CSV are relative to the dataset root. Training images receive random
+horizontal and vertical flips; validation and test images use no augmentation.
+The loader returns the class names in the project's fixed class order.
 
 Build one of the available models for the desired number of classes:
 
@@ -169,8 +174,20 @@ model = build_model("resnet18", num_classes=len(class_names))
 ```
 
 The ResNet-18 builder attempts to load ImageNet weights and falls back to
-random initialization if the weights cannot be loaded. These utilities do not
-currently include a training loop or evaluation command.
+random initialization if the weights cannot be loaded.
+
+Train the default 13-band CNN and save its best checkpoint:
+
+```powershell
+python -m src.train --data-dir data/raw/EuroSAT_MS
+```
+
+The training command creates `data/processed/splits.csv` on its first run and
+reuses it afterward. Evaluate the saved checkpoint with the same split:
+
+```powershell
+python -m src.evaluate
+```
 
 ## Tests
 

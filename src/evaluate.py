@@ -32,7 +32,7 @@ from src.model import SmallCNN
 
 # Configuration
 
-DATA_DIR = PROJECT_ROOT / "EuroSAT_MS" / "EuroSAT_MS"
+DATA_DIR = PROJECT_ROOT / "data" / "raw" / "EuroSAT_MS"
 OUTPUT_DIR = PROJECT_ROOT / "outputs" / "evaluation"
 CHECKPOINT_PATH = (
     PROJECT_ROOT / "outputs" / "baseline" / "best_model.pth"

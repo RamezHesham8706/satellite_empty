@@ -38,8 +38,45 @@ CLASS_NAMES = [
     "SeaLake",
 ]
 
+SENTINEL2_BAND_ORDER = (
+    "B01",
+    "B02",
+    "B03",
+    "B04",
+    "B05",
+    "B06",
+    "B07",
+    "B08",
+    "B8A",
+    "B09",
+    "B10",
+    "B11",
+    "B12",
+)
+
 
 # Resolve dataset directory
+
+def _contains_class_directories(path):
+    return any(
+        child.is_dir() and child.name in CLASS_NAMES
+        for child in path.iterdir()
+    )
+
+
+def _find_dataset_root(path):
+    if _contains_class_directories(path):
+        return path
+
+    for candidate in sorted(
+        (child for child in path.rglob("*") if child.is_dir()),
+        key=lambda child: (len(child.parts), str(child).lower()),
+    ):
+        if _contains_class_directories(candidate):
+            return candidate
+
+    return None
+
 
 def resolve_data_dir(data_dir=None):
     """
@@ -57,16 +94,20 @@ def resolve_data_dir(data_dir=None):
                 f"Dataset directory does not exist: {path}"
             )
 
-        return path
+        dataset_root = _find_dataset_root(path)
+        if dataset_root is None:
+            raise FileNotFoundError(
+                f"No EuroSAT class folders found in {path} or its "
+                "subdirectories."
+            )
+
+        return dataset_root
 
     for path in DEFAULT_DATA_DIRS:
         if path.is_dir():
-            # Select a directory only if it contains supported images.
-            if any(
-                p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
-                for p in path.rglob("*")
-            ):
-                return path
+            dataset_root = _find_dataset_root(path)
+            if dataset_root is not None:
+                return dataset_root
 
     raise FileNotFoundError(
         "Could not find EuroSAT MS dataset.\n"
@@ -81,7 +122,9 @@ def load_multispectral_image(path):
     Load one image as a float32 NumPy array.
 
     Supported formats:
-        TIFF: read using rasterio.
+        TIFF: read using rasterio. EuroSAT MS channels are returned in
+            Sentinel-2 order: B01, B02, B03, B04, B05, B06, B07, B08,
+            B8A, B09, B10, B11, B12.
         NPY: load a saved NumPy array.
         NPZ: load the first array stored in the archive.
 
@@ -257,11 +300,19 @@ class EuroSATMSDataset(Dataset):
         return image, torch.tensor(label, dtype=torch.long)
 
 
-# Save data splits
+# Save and load data splits
 
-def save_splits(samples, train_idx, val_idx, test_idx, output_path):
+def save_splits(
+    samples,
+    train_idx,
+    val_idx,
+    test_idx,
+    output_path,
+    data_dir=None,
+):
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    data_dir = Path(data_dir).resolve() if data_dir is not None else None
 
     split_names = {}
 
@@ -278,12 +329,89 @@ def save_splits(samples, train_idx, val_idx, test_idx, output_path):
         writer.writerow(["path", "class_name", "label", "split"])
 
         for index, (path, label, class_name) in enumerate(samples):
+            resolved_path = Path(path).resolve()
+            stored_path = (
+                resolved_path.relative_to(data_dir).as_posix()
+                if data_dir is not None
+                else str(resolved_path)
+            )
             writer.writerow([
-                str(path.resolve()),
+                stored_path,
                 class_name,
                 label,
                 split_names[index],
             ])
+
+
+def load_splits(samples, data_dir, splits_path):
+    data_dir = Path(data_dir).resolve()
+    samples_by_path = {
+        Path(path).resolve(): (index, label, class_name)
+        for index, (path, label, class_name) in enumerate(samples)
+    }
+    split_indices = {"train": [], "val": [], "test": []}
+    seen_paths = set()
+
+    with Path(splits_path).open(newline="", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        expected_columns = {"path", "class_name", "label", "split"}
+        if reader.fieldnames is None or not expected_columns.issubset(
+            reader.fieldnames
+        ):
+            raise ValueError(
+                f"Split file must contain columns: "
+                f"{', '.join(sorted(expected_columns))}"
+            )
+
+        for row in reader:
+            saved_path = Path(row["path"])
+            sample_path = (
+                saved_path.resolve()
+                if saved_path.is_absolute()
+                else (data_dir / saved_path).resolve()
+            )
+
+            if sample_path in seen_paths:
+                raise ValueError(
+                    f"Duplicate sample path in split file: {row['path']}"
+                )
+            seen_paths.add(sample_path)
+
+            sample = samples_by_path.get(sample_path)
+            if sample is None:
+                raise ValueError(
+                    f"Split file references an unknown sample: {row['path']}"
+                )
+
+            index, label, class_name = sample
+            if row["class_name"] != class_name or int(row["label"]) != label:
+                raise ValueError(
+                    f"Split metadata does not match sample: {row['path']}"
+                )
+
+            split_name = row["split"]
+            if split_name not in split_indices:
+                raise ValueError(
+                    f"Unknown split name {split_name!r} for {row['path']}"
+                )
+            split_indices[split_name].append(index)
+
+    if seen_paths != set(samples_by_path):
+        missing_count = len(set(samples_by_path) - seen_paths)
+        raise ValueError(
+            f"Split file does not cover the current dataset "
+            f"({missing_count} samples missing). Remove or regenerate "
+            f"{splits_path} to create new splits."
+        )
+
+    if any(not indices for indices in split_indices.values()):
+        raise ValueError(f"Split file contains an empty split: {splits_path}")
+
+    return (
+        np.asarray(split_indices["train"]),
+        np.asarray(split_indices["val"]),
+        np.asarray(split_indices["test"]),
+    )
 
 
 # Main loader function
@@ -305,26 +433,38 @@ def get_loaders(
     samples, classes = discover_samples(data_dir)
 
     labels = [label for _, label, _ in samples]
-    indices = np.arange(len(samples))
+    if splits_path is not None and Path(splits_path).is_file():
+        train_idx, val_idx, test_idx = load_splits(
+            samples,
+            data_dir,
+            splits_path,
+        )
+    else:
+        indices = np.arange(len(samples))
+        train_idx, rest_idx = train_test_split(
+            indices,
+            test_size=0.30,
+            random_state=seed,
+            stratify=labels,
+        )
 
-    train_idx, rest_idx = train_test_split(
-        indices,
-        test_size=0.30,
-        random_state=seed,
-        stratify=labels,
-    )
+        rest_labels = [labels[i] for i in rest_idx]
+        val_idx, test_idx = train_test_split(
+            rest_idx,
+            test_size=0.50,
+            random_state=seed,
+            stratify=rest_labels,
+        )
 
-    rest_labels = [labels[i] for i in rest_idx]
-
-    val_idx, test_idx = train_test_split(
-        rest_idx,
-        test_size=0.50,
-        random_state=seed,
-        stratify=rest_labels,
-    )
-
-    if splits_path is not None:
-        save_splits(samples, train_idx, val_idx, test_idx, splits_path)
+        if splits_path is not None:
+            save_splits(
+                samples,
+                train_idx,
+                val_idx,
+                test_idx,
+                splits_path,
+                data_dir=data_dir,
+            )
 
     train_dataset = EuroSATMSDataset(
         samples,

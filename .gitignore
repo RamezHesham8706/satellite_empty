@@ -14,6 +14,7 @@ venv/
 data/raw/*
 data/interim/*
 data/processed/*
+!data/processed/splits.csv
 models/*
 !**/.gitkeep
 .vscode/

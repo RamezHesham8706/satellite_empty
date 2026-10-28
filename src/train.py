@@ -148,7 +148,7 @@ def parse_args():
     parser.add_argument(
         "--data-dir",
         type=Path,
-        default=PROJECT_ROOT / "EuroSAT_MS" / "EuroSAT_MS",
+        default=PROJECT_ROOT / "data" / "raw" / "EuroSAT_MS",
         help="Dataset directory containing one subfolder per class.",
     )
 
