@@ -1,100 +1,95 @@
-"""
-Milestone 1 - Preprocessing (Hazem)
+# preprocessing for EuroSAT MS (13 band tif images)
+# run it from the project folder:  python src/preprocessing.py
 
-Pipeline per image:
-    1) load            (.tif multispectral via rasterio, or .jpg/.png via PIL)
-    2) atmospheric correction (optional, simple Dark Object Subtraction)
-    3) resize to one consistent size
-    4) normalize
-    5) save as .npy (float32) keeping the class-folder structure
-
-Example:
-    python src/preprocessing.py --input data/raw --output data/processed --size 64 --correction none --norm scale
-
-Needs: numpy, pillow, opencv-python, rasterio (rasterio only for .tif files)
-"""
-import argparse
 from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image
+import rasterio
 
-try:
-    import rasterio
-except ImportError:  # only needed for .tif files
-    rasterio = None
-
-EXTS = {".tif", ".tiff", ".jpg", ".jpeg", ".png"}
-
-
-def load_image(path: Path):
-    """Return (image as H x W x C float32 array, max value used for scaling)."""
-    if path.suffix.lower() in {".tif", ".tiff"}:
-        if rasterio is None:
-            raise ImportError("Install rasterio first: pip install rasterio")
-        with rasterio.open(path) as src:
-            arr = src.read().astype(np.float32)  # shape (C, H, W)
-        return np.transpose(arr, (1, 2, 0)), 10000.0  # Sentinel-2 reflectance scale
-    img = np.array(Image.open(path).convert("RGB"), dtype=np.float32)
-    return img, 255.0  # 8-bit images
+INPUT_FOLDER = "data/raw/EuroSAT_MS"
+OUTPUT_FOLDER = "data/processed"
+IMAGE_SIZE = 64
+REMOVE_HAZE = True      # set to False to skip the atmospheric correction
+SCALE = 10000           # sentinel-2 values are reflectance * 10000
 
 
-def dark_object_subtraction(img: np.ndarray, percentile: float = 1.0):
-    """Simple atmospheric correction: subtract each band's darkest values (haze)."""
-    dark = np.percentile(img.reshape(-1, img.shape[-1]), percentile, axis=0)
-    return np.clip(img - dark, 0, None)
+def load_image(path):
+    with rasterio.open(path) as f:
+        img = f.read().astype(np.float32)    # comes as (13, 64, 64)
+    return np.transpose(img, (1, 2, 0))      # we want (64, 64, 13)
 
 
-def resize_image(img: np.ndarray, size: int):
-    """Resize every band to size x size."""
-    h, w = img.shape[:2]
-    interp = cv2.INTER_AREA if size < min(h, w) else cv2.INTER_LINEAR
-    bands = [
-        cv2.resize(img[:, :, b], (size, size), interpolation=interp)
-        for b in range(img.shape[2])
-    ]
-    return np.stack(bands, axis=-1)
+def find_haze(files):
+    # atmospheric correction (dark object subtraction):
+    # the darkest pixels should be close to 0, whatever is above that is haze.
+    # taking every 50th image is enough to measure it
+    pixels = []
+    for path in files[::50]:
+        img = load_image(path)
+        pixels.append(img.reshape(-1, img.shape[2]))
+    pixels = np.concatenate(pixels)
+    return np.percentile(pixels, 1, axis=0)   # one number per band
 
 
-def normalize(img: np.ndarray, scale: float, method: str):
-    if method == "scale":  # divide by 10000 (or 255) -> values 0..1
-        return np.clip(img / scale, 0.0, 1.0)
-    # "minmax": stretch each band of this image to 0..1
-    mn = img.min(axis=(0, 1), keepdims=True)
-    mx = img.max(axis=(0, 1), keepdims=True)
-    return (img - mn) / (mx - mn + 1e-8)
+def remove_haze(img, haze):
+    return np.maximum(img - haze, 0)
+
+
+def resize(img, size):
+    if img.shape[0] == size and img.shape[1] == size:
+        return img    # already the right size
+
+    if size < img.shape[0]:
+        method = cv2.INTER_AREA
+    else:
+        method = cv2.INTER_LINEAR
+
+    bands = []
+    for b in range(img.shape[2]):
+        bands.append(cv2.resize(img[:, :, b], (size, size), interpolation=method))
+    return np.stack(bands, axis=2)
+
+
+def normalize(img):
+    return np.clip(img / SCALE, 0, 1)
+
+
+def preprocess(img, haze=None):
+    if haze is not None:
+        img = remove_haze(img, haze)
+    img = resize(img, IMAGE_SIZE)
+    img = normalize(img)
+    return img.astype(np.float32)
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--input", required=True)
-    ap.add_argument("--output", required=True)
-    ap.add_argument("--size", type=int, default=64)
-    ap.add_argument("--correction", choices=["none", "dos"], default="none")
-    ap.add_argument("--norm", choices=["scale", "minmax"], default="scale")
-    args = ap.parse_args()
+    in_dir = Path(INPUT_FOLDER)
+    out_dir = Path(OUTPUT_FOLDER)
 
-    in_dir, out_dir = Path(args.input), Path(args.output)
-    files = [p for p in in_dir.rglob("*") if p.suffix.lower() in EXTS]
+    files = sorted(in_dir.rglob("*.tif"))
     if not files:
-        print(f"No images found in {in_dir}")
+        print("no tif images found in", in_dir)
         return
+    print(len(files), "images found")
 
-    for i, p in enumerate(files, 1):
-        img, scale = load_image(p)
-        if args.correction == "dos":
-            img = dark_object_subtraction(img)
-        img = resize_image(img, args.size)
-        img = normalize(img, scale, args.norm).astype(np.float32)
+    haze = None
+    if REMOVE_HAZE:
+        haze = find_haze(files)
+        print("haze per band:", np.round(haze))
 
-        out_path = out_dir / p.relative_to(in_dir).with_suffix(".npy")
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        np.save(out_path, img)
+    for i, path in enumerate(files, start=1):
+        result = preprocess(load_image(path), haze)
+
+        # keep the same class folder, just save it as .npy
+        save_path = out_dir / path.relative_to(in_dir).with_suffix(".npy")
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(save_path, result)
+
         if i % 500 == 0:
-            print(f"{i}/{len(files)} done")
+            print(i, "/", len(files))
 
-    print(f"Finished: {len(files)} images -> {out_dir}")
+    print("done,", len(files), "images saved in", out_dir, "shape:", result.shape)
 
 
 if __name__ == "__main__":
